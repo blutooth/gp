@@ -1,90 +1,113 @@
 import numpy as np
 import scipy as sp
 import matplotlib.pylab as plt
-import numpy.matlib
 import tensorflow as tf
-import os
-from matplotlib import pyplot as pl
-from scipy.stats import multivariate_normal as mvn
 
-
-sig=3
-
-def train_data(N=1000):
+#X,Y points from trining data
+def train_data(N=300):
+    sig=3
     X=np.array(np.random.uniform(low=0,high=4*np.math.pi,size=[N,1]))
     f_sin=np.vectorize(sp.sin,otypes=[np.float])
     f_cos=np.vectorize(sp.cos,otypes=[np.float])
     Y=30*f_sin(X)+30*f_cos(2*X+4)+sig*np.array(sp.randn(N,1))
     return [X,Y]
 
-#end of prior funcs
+#MAT MUL
+def Mul(*arg):
+    if len(arg)==2:
+        return tf.matmul(arg[0],arg[1])
+    else:
+        return Mul(tf.matmul(arg[0],arg[1]),*arg[2:])
+
+#Works
+def get_dim(X,index):
+     shape=X.get_shape()
+     return int(shape[index])
 
 
-def tf_SE_K(X1,X2,sigma, len_sc):
-    (l1,lol)=X1.get_shape()
-    (l2,lol)=X2.get_shape()
-    l2=int(l2)
-    l1=int(l1)
-    print(l2)
+def tf_SE_K(X1,X2):
+    # Dimensions of X1,X2
+    l1=get_dim(X1,0); l2=get_dim(X2,0)
+
+    X2_T=tf.transpose(X2)
     X1_mat=tf.tile(X1,[1,l2])
-    X2_mat=tf.transpose(tf.tile(X2,[1,l1]))
-    K_1=tf.add(tf.square(X1_mat),tf.square(X2_mat))
-    K_2=tf.mul(tf.constant(2.0, shape=[l1,l2]),tf.matmul(X1,tf.transpose(X2)))
-    K_3=tf.sub(K_1,K_2)
-    exponent=tf.pow(tf.exp(tf.div(tf.constant(-1.0,shape=[l1,l2]),tf.tile(len_sc,[l1,l2]))),K_3)
-    K_f= tf.mul(tf.square(sigma), exponent)
+    X2_mat=tf.tile(X2_T,[l1,1])
+    K_1=tf.squared_difference(X1_mat,X2_mat)
+    exponent=tf.exp(-(0.5*K_1/tf.square(1.0)))#len_sc
+    K_f= tf.mul(tf.square(1.0), exponent)+tf.constant(np.eye(l1,l2),shape=[l1,l2],dtype=tf.float32) #sig
     return K_f
 
-def MVN_density(x,mu,cov):
-    (l1,lol)=x.get_shape()
-    print(x.get_shape()); print(s.run(x));print(s.run(mu))
+def log_density(x,mu,prec):
     diff=tf.sub(x,mu)
-    diff_sq=-1.0*tf.matmul(tf.matmul(tf.transpose(diff),cov),diff)/2.0
-    print(s.run(diff_sq))
-    print(s.run(cov))
-    print(s.run(tf.matrix_determinant(cov)))
-    # to do: decompose diagonal to get cov
-    #logdet=-1.0*tf.(tf.log(tf.slice(tf.self_adjoint_eig(cov),[1],)))
-    return diff_sq
+    diff_sq=-0.5*tf.matmul(tf.matmul(tf.transpose(diff),prec),diff)
+    logdet=log_determinant(prec)
+    return diff_sq+logdet
+
+def Matrix_Inversion_Lemma(A,U,C_inv,V):
+    A_inv=tf.matrix_inverse(A)
+    z=A_inv-Mul(A_inv,U,tf.matrix_inverse(C_inv+Mul(V,A_inv,U)),V,A_inv)
+    return z
+
+def log_determinant(Z):
+    logdet=tf.log(tf.matrix_determinant(Z))
+    return logdet
+
+def F_bound(y,Kmm,Knm,Knn):
+    Eye=tf.constant(np.eye(N,N), shape=[N,N],dtype=tf.float32)
+    sigEye=tf.mul(1.0,Eye)
+    print(s.run(tf.matrix_inverse(sigEye)))
+    #sigEye=tf.mul(tf.square(sigma),Eye)
+    Kmn=tf.transpose(Knm)
+    prec=Matrix_Inversion_Lemma(sigEye,Knm,Kmm,Kmn)
+    zeros=tf.constant(np.zeros(N),shape=[N,1],dtype=tf.float32)
+    log_den=log_density(y,zeros,prec)
+    Kmm_inv=tf.matrix_inverse(Kmm)
+    trace_term=tf.trace(Knn-Mul(Knm,Kmm_inv,Kmn))*(0.5)
+    return log_den-trace_term
 
 [X,Y]=train_data()
-
-
-
-
-# Create an optimizer.
-
-M=30
+M=50;N=300
 s=tf.Session()
-Xtr=tf.constant(X,shape=X.shape,dtype=tf.float32)
-Ytr=tf.constant(Y,shape=Y.shape,dtype=tf.float32)
-X_m=tf.Variable(tf.random_uniform(minval=0,maxval=10,shape=[M,1]),name='X_m')
+Xtr=tf.constant(X,shape=[N,1],dtype=tf.float32)
+Ytr=tf.constant(Y,shape=[N,1],dtype=tf.float32)
+X_m=tf.Variable(tf.random_uniform([M,1],minval=0,maxval=10),name='X_m')
+#sigma=tf.Variable(tf.ones([1,1]),dtype=tf.float32,name='sigma')
+#len_sc=tf.Variable(tf.ones([1,1]),dtype=tf.float32,name='len_sc')
+s.run(tf.initialize_all_variables())
+print(s.run(X_m))
 
-sigma=tf.Variable(tf.ones([1,1]),dtype=tf.float32,name='sigma')
-len_sc=tf.Variable(tf.ones([1,1]),dtype=tf.float32,name='len_sc')
 
-K_xm=tf_SE_K(Xtr,X_m,sigma,len_sc)
-K_mm=tf_SE_K(X_m,X_m,sigma,len_sc)
+K_nm=tf_SE_K(Xtr,X_m)
+K_mm=tf_SE_K(X_m,X_m)
+print(s.run(K_mm))
+K_nn=tf_SE_K(Xtr,Xtr)
+K_mn=tf.transpose(K_nm)
 
-Q_nn=tf.matmul(K_xm, tf.matmul(tf.matrix_inverse(K_mm),tf.transpose(K_xm)))
-F_v=MVN_density(Ytr,tf.zeros(shape=Y.shape,dtype=tf.float32),Q_nn)
-grad=tf.gradients(F_v,sigma)
-opt = tf.train.AdamOptimizer(1e-4).minimize(F_v)
-# Compute the gradients for a list of variables.
-#grads_and_vars = opt.compute_gradients(loss, <list of variables>)
 
-# grads_and_vars is a list of tuples (gradient, variable).  Do whatever you
-# need to the 'gradient' part, for example cap them, etc.
-#capped_grads_and_vars = [(MyCapper(gv[0]), gv[1]) for gv in grads_and_vars]
+SIGMA=tf.matrix_inverse(K_mm+Mul(K_mn,K_nm))
+mu=Mul(K_mm,SIGMA,K_mn,Ytr)
+Real_mean=Mul(K_nm,tf.matrix_inverse(K_mm),mu)
 
-# Ask the optimizer to apply the capped gradients.
-#opt.apply_gradients(capped_grads_and_vars)
-tf.initialize_all_variables()
+
+F_v=F_bound(Ytr,K_mm,K_nm,K_nn)
+tf.scalar_summary("F_v", F_v)
+
+opt = tf.train.AdagradOptimizer(1.0)
+train=opt.minimize(-1*F_v)
+init=tf.initialize_all_variables()
+s.run(init)
+
+
+plt.ion()
+plt.axis([0, 10, -5, 5])
+
 print('begin optimisation')
-for step in xrange(201):
-    s.run(opt)
-    if step % 20 == 0:
-        print(step, s.run(sigma),s.run(len_sc))
-
+for step in xrange(500):
+    s.run(train)
+    if step % 2 == 0:
+        print(step,s.run(X_m))
+        plt.clf()
+        plt.scatter(s.run(X_m),np.zeros(M),color='red')
+        plt.scatter(X,s.run(Real_mean))
+        plt.pause(2)
 s.close()
-
