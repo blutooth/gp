@@ -6,7 +6,7 @@ import Data
 
 
 # Run the Model
-M=10;N=300
+M=20;N=300
 [X,Y]=Data.train_data(N)
 s=tf.Session()
 h.set_sess(s)
@@ -38,10 +38,10 @@ mean=h.Mul(K_nm,mu_post)
 variance=K_nn-h.Mul(K_nm,h.safe_chol(K_mm,K_mn))+h.Mul(K_nm,h.safe_chol(Sig_Inv,K_mn))
 var_terms=2*tf.sqrt(tf.reshape(tf.diag_part(variance)+tf.square(sigma),[N,1]))
 
-F_v=h.F_bound(Ytr,K_mm,K_nm,K_nn,sigma)
+F_v=h.F_bound_v1(Ytr,K_mm,K_nm,K_nn,sigma)
 tf.scalar_summary("F_v", F_v)
 
-opt = tf.train.AdamOptimizer(0.1)
+opt = tf.train.AdamOptimizer(0.5)
 train=opt.minimize(-1*F_v)
 init=tf.initialize_all_variables()
 s.run(init)
@@ -57,13 +57,14 @@ for step in xrange(10000):
         #Z=h.jitter(X_m)
         #print(s.run(tf.reduce_min(h.abs_diff(Z,Z)+np.eye(M,M))))
         #X_m=Z
-    if step % 10 == 0:
+    if step % 50 == 0:
         plt.clf()
         plt.scatter(s.run(X_m),np.zeros(M),color='red')
         plt.scatter(X,s.run(mean),color='blue')
+
         plt.scatter(X,s.run(tf.add(var_terms,mean)),color='black')
         plt.scatter(X,s.run(tf.sub(mean,var_terms)),color='black')
-        print(F_v)
+        print(s.run(F_v))
         plt.scatter(X,Y,color='green')
         plt.pause(2)
         h.set_sess(s)

@@ -65,6 +65,20 @@ def F_bound(y,Kmm,Knm,Knn):
     trace_term=tf.trace(Knn-Mul(Knm,Kmm_inv,Kmn))*(0.5)
     return log_den-trace_term
 
+
+def F2_bound(y,Kmm,Knm,Knn,mu,Sigma):
+    Eye=tf.constant(np.eye(N,N), shape=[N,N],dtype=tf.float32)
+    sigEye=tf.mul(1.0,Eye)
+    print(s.run(tf.matrix_inverse(sigEye)))
+    #sigEye=tf.mul(tf.square(sigma),Eye)
+    Kmn=tf.transpose(Knm)
+    prec=Matrix_Inversion_Lemma(sigEye,Knm,Kmm,Kmn)
+    zeros=tf.constant(np.zeros(N),shape=[N,1],dtype=tf.float32)
+    log_den=log_density(y,zeros,prec)
+    Kmm_inv=tf.matrix_inverse(Kmm)
+    trace_term=tf.trace(Knn-Mul(Knm,Kmm_inv,Kmn))*(0.5)
+    return log_den-trace_term
+
 [X,Y]=train_data()
 M=50;N=300
 s=tf.Session()
@@ -106,6 +120,7 @@ for step in xrange(500):
     s.run(train)
     if step % 2 == 0:
         print(step,s.run(X_m))
+
         plt.clf()
         plt.scatter(s.run(X_m),np.zeros(M),color='red')
         plt.scatter(X,s.run(Real_mean))
